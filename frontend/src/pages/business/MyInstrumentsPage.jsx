@@ -12,6 +12,96 @@ import {
 
 import api from "../../services/api";
 
+/*
+ * Instrument types are grouped according to the schedule structure
+ * of the Legal Metrology (General) Rules, 2011.
+ */
+const INSTRUMENT_TYPE_GROUPS = [
+  {
+    label: "Fifth Schedule — Weights",
+    options: [
+      "Weights (Other than Carat Weights)",
+      "Carat Weights",
+      "Standard Weights for Testing High Capacity Weighing Machines",
+    ],
+  },
+  {
+    label: "Sixth Schedule — Measures",
+    options: [
+      "Liquid Capacity Measures",
+      "Dispensing Measures",
+      "Liquor Measures",
+      "Length Measures (Non-Flexible)",
+      "Folding Scales",
+      "Fabric or Plastic Tape Measures",
+      "Steel Tape Measures",
+      "Surveying Chains",
+      "Tapes for Measurement of Oil Quantities",
+    ],
+  },
+  {
+    label: "Seventh Schedule — Weighing Instruments",
+    options: [
+      "Non-Automatic Weighing Instrument",
+      "Beam Scale",
+      "Counter Machine",
+      "Automatic Rail Weighbridge",
+      "Automatic Gravimetric Filling Instrument",
+      "Discontinuous Totalizing Automatic Weighing Instrument",
+      "Automatic Instrument for Weighing Road Vehicles in Motion",
+    ],
+  },
+  {
+    label: "Eighth Schedule — Measuring Instruments",
+    options: [
+      "Volumetric Container Filling Machine",
+      "Bulk Meter",
+      "Water Meter",
+      "Measuring System for Liquids Other than Water",
+      "Volumetric Container-Type Liquid Measuring Device",
+      "Clinical Thermometer",
+      "Sphygmomanometer",
+      "Taximeter",
+      "CNG Measuring System for Vehicles",
+      "Petrol / Diesel Fuel Dispenser",
+      "LPG Fuel Dispenser",
+      "LNG Fuel Dispenser",
+      "Hydrogen Fuel Dispenser",
+      "Gas Meter",
+      "Radar Equipment for Measuring Vehicle Speed",
+      "Moisture Meter",
+      "Breath Analyser",
+      "Continuous Electrical Thermometer",
+      "Energy Meter",
+      "Flow Meter",
+      "Multi-Dimensional Measuring Instrument",
+      "Load Cell",
+      "Measuring Tape",
+      "Auto Rickshaw / Taxi Meter",
+    ],
+  },
+];
+
+/*
+ * Capacity units available during instrument registration.
+ *
+ * The selected unit is stored directly in the existing
+ * `capacity_unit` field, so no backend/database change is needed.
+ */
+const CAPACITY_UNITS = [
+  "mg",
+  "g",
+  "kg",
+  "tonne",
+  "mL",
+  "L",
+  "m³",
+  "mm",
+  "cm",
+  "m",
+  "km",
+];
+
 const initialForm = {
   instrument_type: "",
   manufacturer: "",
@@ -125,7 +215,6 @@ export default function MyInstrumentsPage() {
 
     setFormError("");
 
-    // Frontend validation
     if (
       !form.instrument_type.trim() ||
       !form.manufacturer.trim() ||
@@ -179,16 +268,12 @@ export default function MyInstrumentsPage() {
         payload
       );
 
-      // Add newly created instrument immediately
       setInstruments((prev) => [
         response.data,
         ...prev,
       ]);
 
-      // Reset form
       setForm(initialForm);
-
-      // Close modal
       setShowModal(false);
     } catch (err) {
       console.error(
@@ -300,6 +385,7 @@ export default function MyInstrumentsPage() {
 
   return (
     <div className="mx-auto max-w-[1260px] px-4 py-6 sm:px-7">
+
       {/* Header */}
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
@@ -379,8 +465,10 @@ export default function MyInstrumentsPage() {
 
       {/* Main table */}
       <section className="mt-5 rounded-xl border border-slate-200 bg-white">
+
         {/* Filters */}
         <div className="grid gap-3 p-4 lg:grid-cols-[1.6fr_.7fr_.7fr]">
+
           <div className="relative">
             <Search
               className="absolute left-3 top-3 text-slate-400"
@@ -407,7 +495,9 @@ export default function MyInstrumentsPage() {
             <option>All Types</option>
 
             {instrumentTypes.map((type) => (
-              <option key={type}>{type}</option>
+              <option key={type}>
+                {type}
+              </option>
             ))}
           </select>
 
@@ -598,7 +688,8 @@ export default function MyInstrumentsPage() {
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
-            {/* Modal header */}
+
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b p-5">
               <div>
                 <h2 className="text-xl font-bold text-slate-900">
@@ -624,6 +715,7 @@ export default function MyInstrumentsPage() {
               onSubmit={handleSubmit}
               className="space-y-5 p-5"
             >
+
               {formError && (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
                   {formError}
@@ -631,20 +723,50 @@ export default function MyInstrumentsPage() {
               )}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                {/* Instrument type */}
+
+                {/* Instrument Type */}
                 <div className="sm:col-span-2">
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Instrument Type *
                   </label>
 
-                  <input
+                  <select
                     name="instrument_type"
                     value={form.instrument_type}
                     onChange={handleFormChange}
                     required
-                    placeholder="e.g. Digital Weighing Scale"
-                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
-                  />
+                    className="w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
+                  >
+                    <option value="">
+                      Select instrument type
+                    </option>
+
+                    {INSTRUMENT_TYPE_GROUPS.map(
+                      (group) => (
+                        <optgroup
+                          key={group.label}
+                          label={group.label}
+                        >
+                          {group.options.map(
+                            (instrumentType) => (
+                              <option
+                                key={instrumentType}
+                                value={instrumentType}
+                              >
+                                {instrumentType}
+                              </option>
+                            )
+                          )}
+                        </optgroup>
+                      )
+                    )}
+                  </select>
+
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Select the applicable weight, measure,
+                    weighing instrument or measuring instrument
+                    category.
+                  </p>
                 </div>
 
                 {/* Manufacturer */}
@@ -678,7 +800,7 @@ export default function MyInstrumentsPage() {
                   />
                 </div>
 
-                {/* Serial */}
+                {/* Serial Number */}
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Serial Number *
@@ -713,23 +835,35 @@ export default function MyInstrumentsPage() {
                   />
                 </div>
 
-                {/* Capacity unit */}
+                {/* Capacity Unit */}
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Capacity Unit *
                   </label>
 
-                  <input
+                  <select
                     name="capacity_unit"
                     value={form.capacity_unit}
                     onChange={handleFormChange}
                     required
-                    placeholder="e.g. kg"
-                    className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
-                  />
+                    className="w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
+                  >
+                    <option value="">
+                      Select unit
+                    </option>
+
+                    {CAPACITY_UNITS.map((unit) => (
+                      <option
+                        key={unit}
+                        value={unit}
+                      >
+                        {unit}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {/* Least count */}
+                {/* Least Count */}
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     Least Count *
@@ -746,6 +880,10 @@ export default function MyInstrumentsPage() {
                     placeholder="e.g. 0.01"
                     className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
                   />
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Use the same measurement unit as the capacity.
+                  </p>
                 </div>
 
                 {/* Location */}
@@ -763,10 +901,12 @@ export default function MyInstrumentsPage() {
                     className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:border-[#0875e1]"
                   />
                 </div>
+
               </div>
 
               {/* Buttons */}
               <div className="flex justify-end gap-3 border-t pt-4">
+
                 <button
                   type="button"
                   onClick={closeModal}
@@ -785,6 +925,7 @@ export default function MyInstrumentsPage() {
                     ? "Registering..."
                     : "Register Instrument"}
                 </button>
+
               </div>
             </form>
           </div>

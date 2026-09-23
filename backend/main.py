@@ -2,12 +2,12 @@ from fastapi import FastAPI
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import uuid4
-from models import User, Business, Instrument, Application, Officer, Assignment, Inspection, Certificate, UserRole, Document
+from models import User, Business, Instrument, Application, Officer, Assignment, Inspection, Certificate, UserRole, Document, AuditLog
 from database import get_db
-from schemas import RegisterRequest, UserResponse, InstrumentCreate, InstrumentResponse, LoginRequest, TokenResponse, ApplicationCreate, ApplicationResponse, AssignmentCreate, AssignmentResponse, OfficerRecommendationResponse, OfficerAssignmentResponse, InspectionCreate, InspectionResponse, CertificateResponse, AdminUserResponse
+from schemas import RegisterRequest, UserResponse, InstrumentCreate, InstrumentResponse, LoginRequest, TokenResponse, ApplicationCreate, ApplicationResponse, AssignmentCreate, AssignmentResponse, OfficerRecommendationResponse, OfficerAssignmentResponse, InspectionCreate, InspectionResponse, CertificateResponse, AdminUserResponse, AdminApplicationResponse, AdminInstrumentResponse, AdminCertificateResponse, AdminAuditLogResponse, AdminReportsResponse, AdminDashboardResponse
 from auth import hash_password, verify_password, create_access_token, get_current_user, require_admin
 from sqlalchemy import func, desc
-from datetime import datetime, timezone, date, timedelta
+from datetime import datetime, timezone, date, timedelta, time
 import os
 import hashlib
 
@@ -40,6 +40,32 @@ app.mount(
     StaticFiles(directory="generated"),
     name="files"
 )
+
+def create_audit_log(
+    db: Session,
+    user_id: int | None,
+    action: str,
+    entity_type: str,
+    entity_id: int | None = None,
+    old_value: dict | None = None,
+    new_value: dict | None = None,
+    ip_address: str | None = None,
+):
+    audit_log = AuditLog(
+        user_id=user_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        old_value=old_value,
+        new_value=new_value,
+        ip_address=ip_address,
+    )
+
+    db.add(audit_log)
+    db.flush()
+
+    return audit_log
+
 
 @app.get("/")
 def root():
@@ -107,8 +133,8 @@ def create_instrument(
     db: Session = Depends(get_db)
 ):
     business = db.query(Business).filter(
-    Business.user_id == current_user.id
-).first()
+        Business.user_id == current_user.id
+    ).first()
 
     if business is None:
         raise HTTPException(
@@ -130,6 +156,31 @@ def create_instrument(
     )
 
     db.add(new_instrument)
+
+    # Flush so the instrument gets its database ID
+    db.flush()
+
+    # Create audit log
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="CREATE",
+        entity_type="INSTRUMENT",
+        entity_id=new_instrument.id,
+        new_value={
+            "instrument_id": new_instrument.instrument_id,
+            "business_id": new_instrument.business_id,
+            "instrument_type": new_instrument.instrument_type,
+            "manufacturer": new_instrument.manufacturer,
+            "model": new_instrument.model,
+            "serial_number": new_instrument.serial_number,
+            "capacity": str(new_instrument.capacity),
+            "capacity_unit": new_instrument.capacity_unit,
+            "least_count": str(new_instrument.least_count),
+            "location": new_instrument.location
+        }
+    )
+
     db.commit()
     db.refresh(new_instrument)
 
@@ -252,6 +303,45 @@ def create_application(
     )
 
     db.add(new_application)
+
+    # Get the generated application ID before committing
+    db.flush()
+
+    # Create audit log
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="CREATE",
+        entity_type="APPLICATION",
+        entity_id=new_application.id,
+        new_value={
+            "application_number": new_application.application_number,
+            "instrument_id": new_application.instrument_id,
+            "business_id": new_application.business_id,
+            "application_type": (
+                new_application.application_type.value
+                if hasattr(new_application.application_type, "value")
+                else new_application.application_type
+            ),
+            "preferred_date": (
+                str(new_application.preferred_date)
+                if new_application.preferred_date
+                else None
+            ),
+            "preferred_time": (
+                str(new_application.preferred_time)
+                if new_application.preferred_time
+                else None
+            ),
+            "location": new_application.location,
+            "status": (
+                new_application.status.value
+                if hasattr(new_application.status, "value")
+                else new_application.status
+            ),
+        }
+    )
+
     db.commit()
     db.refresh(new_application)
 
@@ -355,16 +445,6 @@ def get_application(
 
     return application
 
-@app.get("/admin/applications", response_model=list[ApplicationResponse])
-def get_all_applications(
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
-):
-    applications = db.query(Application).order_by(
-        Application.submitted_at.desc()
-    ).all()
-
-    return applications
 
 @app.get(
     "/admin/applications/{application_id}/recommendations",
@@ -575,8 +655,46 @@ def assign_officer(
 
     db.add(new_assignment)
 
+    # Get old application status before changing it
+    old_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
     # Move application forward
     application.status = "SCHEDULED"
+
+    # Get new status
+    new_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
+    # Flush so the assignment gets its database ID
+    db.flush()
+
+    # Audit: officer assignment
+    create_audit_log(
+        db=db,
+        user_id=admin.id,
+        action="ASSIGN_OFFICER",
+        entity_type="APPLICATION",
+        entity_id=application.id,
+        old_value={
+            "status": old_status
+        },
+        new_value={
+            "officer_id": officer.id,
+            "scheduled_date": str(scheduled_date),
+            "scheduled_time": str(scheduled_time),
+            "assignment_id": new_assignment.id,
+            "assignment_status": new_assignment.assignment_status,
+            "recommendation_score": score,
+            "application_status": new_status
+        }
+    )
 
     db.commit()
     db.refresh(new_assignment)
@@ -829,6 +947,19 @@ def submit_inspection(
             detail="Result must be PASS or FAIL"
         )
 
+    # Save old statuses before changing them
+    old_application_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
+    old_assignment_status = (
+        assignment.assignment_status.value
+        if hasattr(assignment.assignment_status, "value")
+        else assignment.assignment_status
+    )
+
     now = datetime.now(timezone.utc)
 
     inspection = Inspection(
@@ -844,12 +975,46 @@ def submit_inspection(
 
     db.add(inspection)
 
+    # Mark assignment as completed
     assignment.assignment_status = "COMPLETED"
 
+    # Update application status
     if inspection_data.result == "PASS":
         application.status = "PASSED"
     else:
         application.status = "FAILED"
+
+    new_application_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
+    # Flush so inspection gets its database ID
+    db.flush()
+
+    # Create audit log
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="SUBMIT_INSPECTION",
+        entity_type="APPLICATION",
+        entity_id=application.id,
+        old_value={
+            "application_status": old_application_status,
+            "assignment_status": old_assignment_status
+        },
+        new_value={
+            "inspection_id": inspection.id,
+            "officer_id": officer.id,
+            "result": inspection_data.result,
+            "application_status": new_application_status,
+            "assignment_status": "COMPLETED",
+            "latitude": inspection_data.latitude,
+            "longitude": inspection_data.longitude,
+            "remarks": inspection_data.remarks
+        }
+    )
 
     db.commit()
     db.refresh(inspection)
@@ -926,6 +1091,13 @@ def generate_certificate(
             detail="Instrument or business not found"
         )
 
+    # Save old application status before changing it
+    old_application_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
     verification_date = date.today()
     valid_until = verification_date + timedelta(days=365)
 
@@ -939,24 +1111,35 @@ def generate_certificate(
     os.makedirs("generated/qr", exist_ok=True)
 
     pdf_filename = f"{certificate_number}.pdf"
+
     pdf_path = os.path.join(
         "generated",
         "certificates",
         pdf_filename
     )
 
-    pdf = canvas.Canvas(pdf_path, pagesize=A4)
+    pdf = canvas.Canvas(
+        pdf_path,
+        pagesize=A4
+    )
 
     width, height = A4
 
-    pdf.setFont("Helvetica-Bold", 20)
+    pdf.setFont(
+        "Helvetica-Bold",
+        20
+    )
+
     pdf.drawCentredString(
         width / 2,
         height - 80,
         "LEGAL METROLOGY VERIFICATION CERTIFICATE"
     )
 
-    pdf.setFont("Helvetica", 12)
+    pdf.setFont(
+        "Helvetica",
+        12
+    )
 
     pdf.drawString(
         60,
@@ -1012,7 +1195,10 @@ def generate_certificate(
         f"Valid Until: {valid_until}"
     )
 
-    pdf.setFont("Helvetica-Bold", 14)
+    pdf.setFont(
+        "Helvetica-Bold",
+        14
+    )
 
     pdf.drawString(
         60,
@@ -1020,7 +1206,10 @@ def generate_certificate(
         "RESULT: VERIFIED / PASS"
     )
 
-    pdf.setFont("Helvetica", 9)
+    pdf.setFont(
+        "Helvetica",
+        9
+    )
 
     pdf.drawString(
         60,
@@ -1061,7 +1250,42 @@ def generate_certificate(
 
     db.add(certificate)
 
+    # Update application status
     application.status = "CERTIFICATE_GENERATED"
+
+    new_application_status = (
+        application.status.value
+        if hasattr(application.status, "value")
+        else application.status
+    )
+
+    # Flush so certificate gets its database ID
+    db.flush()
+
+    # Create audit log
+    create_audit_log(
+        db=db,
+        user_id=current_user.id,
+        action="GENERATE_CERTIFICATE",
+        entity_type="CERTIFICATE",
+        entity_id=certificate.id,
+        old_value={
+            "application_status": old_application_status
+        },
+        new_value={
+            "certificate_number": certificate.certificate_number,
+            "certificate_id": certificate.id,
+            "application_id": certificate.application_id,
+            "instrument_id": certificate.instrument_id,
+            "business_id": certificate.business_id,
+            "officer_id": certificate.officer_id,
+            "result": certificate.result,
+            "verification_date": str(certificate.verification_date),
+            "valid_until": str(certificate.valid_until),
+            "certificate_hash": certificate.certificate_hash,
+            "application_status": new_application_status
+        }
+    )
 
     db.commit()
     db.refresh(certificate)
@@ -1141,9 +1365,79 @@ def get_admin_users(
         .all()
     )
 
-    return users
+    result = []
 
-@app.get("/admin/instruments", response_model=list[InstrumentResponse])
+    for user in users:
+        role = (
+            user.role.value
+            if hasattr(user.role, "value")
+            else user.role
+        )
+
+        officer = None
+
+        if role in ["LMO", "GATC"]:
+            officer = (
+                db.query(Officer)
+                .filter(Officer.user_id == user.id)
+                .first()
+            )
+
+        result.append(
+            {
+                "id": user.id,
+                "full_name": user.full_name,
+                "email": user.email,
+                "phone": user.phone,
+                "role": role,
+                "is_active": user.is_active,
+
+                "employee_code": (
+                    officer.employee_code
+                    if officer
+                    else None
+                ),
+
+                "designation": (
+                    officer.designation
+                    if officer
+                    else None
+                ),
+
+                "district": (
+                    officer.district
+                    if officer
+                    else None
+                ),
+
+                "state": (
+                    officer.state
+                    if officer
+                    else None
+                ),
+
+                "specialization": (
+                    officer.specialization
+                    if officer
+                    else None
+                ),
+
+                "is_available": (
+                    officer.is_available
+                    if officer
+                    else None
+                ),
+
+                "created_at": user.created_at,
+            }
+        )
+
+    return result
+
+@app.get(
+    "/admin/instruments",
+    response_model=list[AdminInstrumentResponse]
+)
 def get_admin_instruments(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -1154,7 +1448,74 @@ def get_admin_instruments(
         .all()
     )
 
-    return instruments
+    result = []
+
+    today = date.today()
+
+    for instrument in instruments:
+
+        # Find the latest certificate for this instrument
+        certificate = (
+            db.query(Certificate)
+            .filter(
+                Certificate.instrument_id == instrument.id
+            )
+            .order_by(
+                Certificate.verification_date.desc(),
+                Certificate.id.desc()
+            )
+            .first()
+        )
+
+        # Default verification information
+        verification_status = "PENDING"
+        last_verification_date = None
+        valid_until = None
+        certificate_number = None
+
+        if certificate:
+            last_verification_date = (
+                certificate.verification_date
+            )
+
+            valid_until = certificate.valid_until
+
+            certificate_number = (
+                certificate.certificate_number
+            )
+
+            # A certificate that is still within
+            # its validity period means the
+            # instrument is verified.
+            if certificate.valid_until < today:
+                verification_status = "EXPIRED"
+            else:
+                verification_status = "VERIFIED"
+
+        result.append(
+            {
+                "id": instrument.id,
+                "instrument_id": instrument.instrument_id,
+                "business_id": instrument.business_id,
+                "instrument_type": instrument.instrument_type,
+                "manufacturer": instrument.manufacturer,
+                "model": instrument.model,
+                "serial_number": instrument.serial_number,
+                "capacity": instrument.capacity,
+                "capacity_unit": instrument.capacity_unit,
+                "least_count": instrument.least_count,
+                "location": instrument.location,
+                "status": instrument.status,
+
+                "verification_status": verification_status,
+                "last_verification_date": last_verification_date,
+                "valid_until": valid_until,
+                "certificate_number": certificate_number,
+            }
+        )
+
+    return result
+
 
 @app.get("/officer/applications")
 def get_officer_applications(
@@ -1572,3 +1933,1071 @@ def get_my_certificates(
         })
 
     return result
+
+@app.get(
+    "/admin/applications",
+    response_model=list[AdminApplicationResponse]
+)
+def get_admin_applications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    applications = (
+        db.query(Application)
+        .order_by(Application.submitted_at.desc())
+        .all()
+    )
+
+    result = []
+
+    for application in applications:
+
+        # -----------------------------
+        # Find business
+        # -----------------------------
+        business = (
+            db.query(Business)
+            .filter(
+                Business.id == application.business_id
+            )
+            .first()
+        )
+
+        business_user = None
+
+        if business:
+            business_user = (
+                db.query(User)
+                .filter(
+                    User.id == business.user_id
+                )
+                .first()
+            )
+
+        # -----------------------------
+        # Find instrument
+        # -----------------------------
+        instrument = (
+            db.query(Instrument)
+            .filter(
+                Instrument.id == application.instrument_id
+            )
+            .first()
+        )
+
+        # -----------------------------
+        # Find latest assignment
+        # -----------------------------
+        assignment = (
+            db.query(Assignment)
+            .filter(
+                Assignment.application_id == application.id
+            )
+            .order_by(
+                Assignment.id.desc()
+            )
+            .first()
+        )
+
+        assigned_officer_name = None
+
+        if assignment:
+            officer = (
+                db.query(Officer)
+                .filter(
+                    Officer.id == assignment.officer_id
+                )
+                .first()
+            )
+
+            if officer:
+                officer_user = (
+                    db.query(User)
+                    .filter(
+                        User.id == officer.user_id
+                    )
+                    .first()
+                )
+
+                if officer_user:
+                    assigned_officer_name = (
+                        officer_user.full_name
+                    )
+
+        # -----------------------------
+        # Find latest inspection
+        # -----------------------------
+        inspection = (
+            db.query(Inspection)
+            .filter(
+                Inspection.application_id == application.id
+            )
+            .order_by(
+                Inspection.id.desc()
+            )
+            .first()
+        )
+
+        inspection_result = None
+        rejection_reason = None
+
+        if inspection:
+
+            inspection_result = (
+                inspection.overall_result.value
+                if hasattr(
+                    inspection.overall_result,
+                    "value"
+                )
+                else inspection.overall_result
+            )
+
+            if inspection_result == "FAIL":
+                rejection_reason = inspection.remarks
+
+        # -----------------------------
+        # Find certificate
+        # -----------------------------
+        certificate = (
+            db.query(Certificate)
+            .filter(
+                Certificate.application_id == application.id
+            )
+            .first()
+        )
+
+        certificate_number = None
+
+        if certificate:
+            certificate_number = (
+                certificate.certificate_number
+            )
+
+        # -----------------------------
+        # Application status
+        # -----------------------------
+        application_status = (
+            application.status.value
+            if hasattr(
+                application.status,
+                "value"
+            )
+            else application.status
+        )
+
+        # -----------------------------
+        # Application type
+        # -----------------------------
+        application_type = (
+            application.application_type.value
+            if hasattr(
+                application.application_type,
+                "value"
+            )
+            else application.application_type
+        )
+
+        # -----------------------------
+        # Build response
+        # -----------------------------
+        result.append(
+            {
+                "id": application.id,
+                "application_number": (
+                    application.application_number
+                ),
+
+                "business_id": (
+                    application.business_id
+                ),
+
+                "business_name": (
+                    business_user.full_name
+                    if business_user
+                    else None
+                ),
+
+                "business_email": (
+                    business_user.email
+                    if business_user
+                    else None
+                ),
+
+                "instrument_id": (
+                    application.instrument_id
+                ),
+
+                "instrument_code": (
+                    instrument.instrument_id
+                    if instrument
+                    else None
+                ),
+
+                "instrument_type": (
+                    instrument.instrument_type
+                    if instrument
+                    else None
+                ),
+
+                "serial_number": (
+                    instrument.serial_number
+                    if instrument
+                    else None
+                ),
+
+                "application_type": (
+                    application_type
+                ),
+
+                "preferred_date": (
+                    application.preferred_date
+                ),
+
+                "preferred_time": (
+                    application.preferred_time
+                ),
+
+                "location": (
+                    application.location
+                ),
+
+                "status": (
+                    application_status
+                ),
+
+                "submitted_at": (
+                    application.submitted_at
+                ),
+
+                "updated_at": (
+                    application.updated_at
+                ),
+
+                "assigned_officer_id": (
+                    assignment.officer_id
+                    if assignment
+                    else None
+                ),
+
+                "assigned_officer_name": (
+                    assigned_officer_name
+                ),
+
+                "scheduled_date": (
+                    assignment.scheduled_date
+                    if assignment
+                    else None
+                ),
+
+                "scheduled_time": (
+                    assignment.scheduled_time
+                    if assignment
+                    else None
+                ),
+
+                "inspection_result": (
+                    inspection_result
+                ),
+
+                "rejection_reason": (
+                    rejection_reason
+                ),
+
+                "certificate_number": (
+                    certificate_number
+                ),
+            }
+        )
+
+    return result
+
+@app.get(
+    "/admin/certificates",
+    response_model=list[AdminCertificateResponse]
+)
+def get_admin_certificates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    certificates = (
+        db.query(Certificate)
+        .order_by(
+            Certificate.verification_date.desc(),
+            Certificate.id.desc()
+        )
+        .all()
+    )
+
+    result = []
+
+    today = date.today()
+
+    for certificate in certificates:
+
+        # -----------------------------------------
+        # BUSINESS
+        # -----------------------------------------
+
+        application = (
+            db.query(Application)
+            .filter(
+                Application.id == certificate.application_id
+            )
+            .first()
+        )
+
+        business = None
+
+        if application:
+            business = (
+                db.query(Business)
+                .filter(
+                    Business.id == application.business_id
+                )
+                .first()
+            )
+
+        business_name = None
+
+        if business:
+            business_user = (
+                db.query(User)
+                .filter(
+                    User.id == business.user_id
+                )
+                .first()
+            )
+
+            if business_user:
+                business_name = (
+                    business_user.full_name
+                )
+
+
+        # -----------------------------------------
+        # INSTRUMENT
+        # -----------------------------------------
+
+        instrument = (
+            db.query(Instrument)
+            .filter(
+                Instrument.id == certificate.instrument_id
+            )
+            .first()
+        )
+
+
+        # -----------------------------------------
+        # STATUS
+        # -----------------------------------------
+
+        if certificate.valid_until < today:
+            certificate_status = "EXPIRED"
+        else:
+            certificate_status = "VALID"
+
+
+        # -----------------------------------------
+        # RESPONSE
+        # -----------------------------------------
+
+        result.append(
+            {
+                "id": certificate.id,
+
+                "certificate_number":
+                    certificate.certificate_number,
+
+                "application_id":
+                    certificate.application_id,
+
+                "business_id":
+                    application.business_id
+                    if application
+                    else None,
+
+                "business_name":
+                    business_name,
+
+                "instrument_id":
+                    certificate.instrument_id,
+
+                "instrument_code":
+                    instrument.instrument_id
+                    if instrument
+                    else None,
+
+                "instrument_type":
+                    instrument.instrument_type
+                    if instrument
+                    else None,
+
+                "serial_number":
+                    instrument.serial_number
+                    if instrument
+                    else None,
+
+                "verification_date":
+                    certificate.verification_date,
+
+                "valid_until":
+                    certificate.valid_until,
+
+                "status":
+                    certificate_status,
+            }
+        )
+
+    return result
+
+@app.get(
+    "/admin/audit-logs",
+    response_model=list[AdminAuditLogResponse]
+)
+def get_admin_audit_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    audit_logs = (
+        db.query(AuditLog)
+        .order_by(AuditLog.created_at.desc())
+        .all()
+    )
+
+    result = []
+
+    for log in audit_logs:
+
+        user = None
+
+        if log.user_id is not None:
+            user = (
+                db.query(User)
+                .filter(User.id == log.user_id)
+                .first()
+            )
+
+        user_role = None
+
+        if user:
+            user_role = (
+                user.role.value
+                if hasattr(user.role, "value")
+                else user.role
+            )
+
+        result.append(
+            {
+                "id": log.id,
+
+                "user_id": log.user_id,
+                "user_name": user.full_name if user else None,
+                "user_role": user_role,
+
+                "action": log.action,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+
+                "ip_address": log.ip_address,
+                "created_at": log.created_at,
+            }
+        )
+
+    return result
+
+@app.get(
+    "/admin/reports",
+    response_model=AdminReportsResponse
+)
+def get_admin_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    # =========================================================
+    # APPLICATIONS
+    # =========================================================
+
+    applications = (
+        db.query(Application)
+        .order_by(Application.submitted_at.asc())
+        .all()
+    )
+
+    total_applications = len(applications)
+
+    status_counts = {
+        "SUBMITTED": 0,
+        "UNDER_REVIEW": 0,
+        "SCHEDULED": 0,
+        "ASSIGNED": 0,
+        "PASSED": 0,
+        "FAILED": 0,
+        "CERTIFICATE_GENERATED": 0,
+        "COMPLETED": 0,
+        "APPROVED": 0,
+        "REJECTED": 0,
+        "CANCELLED": 0,
+    }
+
+    for application in applications:
+
+        status = (
+            application.status.value
+            if hasattr(application.status, "value")
+            else application.status
+        )
+
+        if status in status_counts:
+            status_counts[status] += 1
+
+    pending_statuses = [
+        "SUBMITTED",
+        "UNDER_REVIEW",
+        "SCHEDULED",
+        "ASSIGNED",
+    ]
+
+    pending_applications = sum(
+        status_counts.get(status, 0)
+        for status in pending_statuses
+    )
+
+    # =========================================================
+    # INSPECTIONS
+    # =========================================================
+
+    inspections = (
+        db.query(Inspection)
+        .order_by(Inspection.completed_at.asc())
+        .all()
+    )
+
+    pass_count = 0
+    fail_count = 0
+
+    for inspection in inspections:
+
+        result = (
+            inspection.overall_result.value
+            if hasattr(inspection.overall_result, "value")
+            else inspection.overall_result
+        )
+
+        if result == "PASS":
+            pass_count += 1
+
+        elif result == "FAIL":
+            fail_count += 1
+
+    total_inspections = pass_count + fail_count
+
+    pass_rate = (
+        round((pass_count / total_inspections) * 100, 1)
+        if total_inspections > 0
+        else 0
+    )
+
+    # =========================================================
+    # CERTIFICATES
+    # =========================================================
+
+    certificates = (
+        db.query(Certificate)
+        .order_by(Certificate.valid_until.asc())
+        .all()
+    )
+
+    certificates_issued = len(certificates)
+
+    today = date.today()
+
+    expiring_soon_certificates = []
+
+    for certificate in certificates:
+
+        days_remaining = (
+            certificate.valid_until - today
+        ).days
+
+        if 0 <= days_remaining <= 30:
+
+            instrument = (
+                db.query(Instrument)
+                .filter(
+                    Instrument.id == certificate.instrument_id
+                )
+                .first()
+            )
+
+            business = (
+                db.query(Business)
+                .filter(
+                    Business.id == certificate.business_id
+                )
+                .first()
+            )
+
+            expiring_soon_certificates.append(
+                {
+                    "certificate_number": certificate.certificate_number,
+                    "business_name": (
+                        business.business_name
+                        if business
+                        else None
+                    ),
+                    "instrument_code": (
+                        instrument.instrument_id
+                        if instrument
+                        else None
+                    ),
+                    "valid_until": certificate.valid_until,
+                    "days_remaining": days_remaining,
+                    "status": "EXPIRING SOON",
+                }
+            )
+
+    # =========================================================
+    # OFFICERS
+    # =========================================================
+
+    officers = (
+        db.query(Officer)
+        .order_by(Officer.id)
+        .all()
+    )
+
+    officer_workload = []
+
+    for officer in officers:
+
+        user = (
+            db.query(User)
+            .filter(
+                User.id == officer.user_id
+            )
+            .first()
+        )
+
+        assignments = (
+            db.query(Assignment)
+            .filter(
+                Assignment.officer_id == officer.id
+            )
+            .all()
+        )
+
+        assigned_count = len(assignments)
+
+        completed_count = sum(
+            1
+            for assignment in assignments
+            if (
+                (
+                    assignment.assignment_status.value
+                    if hasattr(
+                        assignment.assignment_status,
+                        "value"
+                    )
+                    else assignment.assignment_status
+                )
+                == "COMPLETED"
+            )
+        )
+
+        pending_count = assigned_count - completed_count
+
+        officer_workload.append(
+            {
+                "officer_id": officer.id,
+                "officer_name": (
+                    user.full_name
+                    if user
+                    else f"Officer {officer.id}"
+                ),
+                "designation": officer.designation,
+                "district": officer.district,
+                "assigned": assigned_count,
+                "completed": completed_count,
+                "pending": pending_count,
+                "is_available": officer.is_available,
+            }
+        )
+
+    # =========================================================
+    # INSTRUMENT DISTRIBUTION
+    # =========================================================
+
+    instruments = (
+        db.query(Instrument)
+        .order_by(Instrument.id)
+        .all()
+    )
+
+    instrument_counts = {}
+
+    for instrument in instruments:
+
+        instrument_type = instrument.instrument_type
+
+        if instrument_type not in instrument_counts:
+            instrument_counts[instrument_type] = 0
+
+        instrument_counts[instrument_type] += 1
+
+    instrument_distribution = [
+        {
+            "instrument_type": instrument_type,
+            "count": count,
+        }
+        for instrument_type, count
+        in sorted(
+            instrument_counts.items(),
+            key=lambda item: item[1],
+            reverse=True
+        )
+    ]
+
+    # =========================================================
+    # APPLICATION TRENDS
+    # Last 6 months
+    # =========================================================
+
+    today = date.today()
+
+    application_trends = []
+
+    for months_ago in range(5, -1, -1):
+
+        month_date = today.replace(day=1)
+
+        # Move backwards/forwards manually
+        month_index = (
+            month_date.year * 12
+            + month_date.month
+            - 1
+            - months_ago
+        )
+
+        year = month_index // 12
+        month = month_index % 12 + 1
+
+        count = 0
+
+        for application in applications:
+
+            if application.submitted_at is None:
+                continue
+
+            submitted_date = application.submitted_at.date()
+
+            if (
+                submitted_date.year == year
+                and submitted_date.month == month
+            ):
+                count += 1
+
+        month_name = date(
+            year,
+            month,
+            1
+        ).strftime("%b")
+
+        application_trends.append(
+            {
+                "month": month_name,
+                "count": count,
+            }
+        )
+
+    # =========================================================
+    # FINAL RESPONSE
+    # =========================================================
+
+    return {
+        "total_applications": total_applications,
+
+        "completed_verifications": total_inspections,
+
+        "pending_applications": pending_applications,
+
+        "pass_rate": pass_rate,
+
+        "failed_inspections": fail_count,
+
+        "certificates_issued": certificates_issued,
+
+        "expiring_soon": len(
+            expiring_soon_certificates
+        ),
+
+        "active_officers": sum(
+            1
+            for officer in officers
+            if officer.is_available
+        ),
+
+        "application_status": status_counts,
+
+        "inspection_results": {
+            "PASS": pass_count,
+            "FAIL": fail_count,
+        },
+
+        "application_trends": application_trends,
+
+        "officer_workload": officer_workload,
+
+        "instrument_distribution": instrument_distribution,
+
+        "expiring_certificates": (
+            expiring_soon_certificates
+        ),
+    }
+
+@app.get(
+    "/admin/dashboard/stats",
+    response_model=AdminDashboardResponse
+)
+def get_admin_dashboard_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    # =========================================================
+    # APPLICATIONS
+    # =========================================================
+
+    applications = (
+        db.query(Application)
+        .order_by(Application.submitted_at.desc())
+        .all()
+    )
+
+    total_applications = len(applications)
+
+    status_counts = {
+        "SUBMITTED": 0,
+        "UNDER_REVIEW": 0,
+        "SCHEDULED": 0,
+        "ASSIGNED": 0,
+        "PASSED": 0,
+        "FAILED": 0,
+        "CERTIFICATE_GENERATED": 0,
+        "COMPLETED": 0,
+        "APPROVED": 0,
+        "REJECTED": 0,
+        "CANCELLED": 0,
+    }
+
+    for application in applications:
+
+        status = (
+            application.status.value
+            if hasattr(application.status, "value")
+            else application.status
+        )
+
+        if status in status_counts:
+            status_counts[status] += 1
+
+    pending_statuses = [
+        "SUBMITTED",
+        "UNDER_REVIEW",
+    ]
+
+    pending_applications = sum(
+        status_counts.get(status, 0)
+        for status in pending_statuses
+    )
+
+    scheduled_inspections = (
+        status_counts.get("SCHEDULED", 0)
+        + status_counts.get("ASSIGNED", 0)
+    )
+
+    # =========================================================
+    # INSPECTIONS
+    # =========================================================
+
+    inspections = (
+        db.query(Inspection)
+        .order_by(Inspection.completed_at.desc())
+        .all()
+    )
+
+    pass_count = 0
+    fail_count = 0
+
+    for inspection in inspections:
+
+        result = (
+            inspection.overall_result.value
+            if hasattr(
+                inspection.overall_result,
+                "value"
+            )
+            else inspection.overall_result
+        )
+
+        if result == "PASS":
+            pass_count += 1
+
+        elif result == "FAIL":
+            fail_count += 1
+
+    # =========================================================
+    # CERTIFICATES
+    # =========================================================
+
+    certificates_issued = (
+        db.query(Certificate)
+        .count()
+    )
+
+    # =========================================================
+    # ACTIVE OFFICERS
+    # =========================================================
+
+    officers = (
+        db.query(Officer)
+        .all()
+    )
+
+    active_officers = sum(
+        1
+        for officer in officers
+        if officer.is_available
+    )
+
+    # =========================================================
+    # PENDING ACTIONS
+    # =========================================================
+
+    # Applications which have not yet been assigned
+    applications_to_assign = (
+        db.query(Application)
+        .filter(
+            Application.status.in_(
+                [
+                    "SUBMITTED",
+                    "UNDER_REVIEW",
+                ]
+            )
+        )
+        .count()
+    )
+
+    # Assigned/scheduled applications which have not
+    # completed an inspection
+    inspections_pending = (
+        db.query(Assignment)
+        .filter(
+            Assignment.assignment_status.in_(
+                [
+                    "ASSIGNED",
+                    "ACCEPTED",
+                ]
+            )
+        )
+        .count()
+    )
+
+    # Certificates expiring within 30 days
+    today = date.today()
+
+    expiring_soon = (
+        db.query(Certificate)
+        .filter(
+            Certificate.valid_until >= today,
+            Certificate.valid_until <= (
+                today + timedelta(days=30)
+            )
+        )
+        .count()
+    )
+
+    # =========================================================
+    # RECENT AUDIT ACTIVITY
+    # =========================================================
+
+    audit_logs = (
+        db.query(AuditLog)
+        .order_by(
+            AuditLog.created_at.desc()
+        )
+        .limit(8)
+        .all()
+    )
+
+    recent_activity = []
+
+    for log in audit_logs:
+
+        user = None
+
+        if log.user_id is not None:
+            user = (
+                db.query(User)
+                .filter(
+                    User.id == log.user_id
+                )
+                .first()
+            )
+
+        user_role = None
+
+        if user:
+            user_role = (
+                user.role.value
+                if hasattr(user.role, "value")
+                else user.role
+            )
+
+        recent_activity.append(
+            {
+                "id": log.id,
+                "action": log.action,
+                "entity_type": log.entity_type,
+                "entity_id": log.entity_id,
+                "user_name": (
+                    user.full_name
+                    if user
+                    else "System"
+                ),
+                "user_role": user_role,
+                "created_at": log.created_at,
+            }
+        )
+
+    # =========================================================
+    # RESPONSE
+    # =========================================================
+
+    return {
+        "total_applications": total_applications,
+
+        "pending_applications": pending_applications,
+
+        "scheduled_inspections": scheduled_inspections,
+
+        "certificates_issued": certificates_issued,
+
+        "active_officers": active_officers,
+
+        "application_status": status_counts,
+
+        "inspection_results": {
+            "PASS": pass_count,
+            "FAIL": fail_count,
+        },
+
+        "pending_actions": {
+            "applications_to_assign": applications_to_assign,
+            "inspections_pending": inspections_pending,
+            "expiring_certificates": expiring_soon,
+        },
+
+        "recent_activity": recent_activity,
+    }

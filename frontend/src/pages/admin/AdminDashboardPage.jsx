@@ -1,645 +1,810 @@
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Clock3,
+  BarChart3,
   FileText,
-  Scale,
-  ShieldCheck,
-  UserCheck,
+  Clock,
+  CalendarCheck,
+  Award,
   Users,
-  X,
+  CheckCircle2,
   XCircle,
+  AlertTriangle,
+  UserPlus,
+  ClipboardCheck,
+  RefreshCw,
+  Activity,
+  ArrowRight,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
 
 import api from "../../services/api";
-import StatCard from "../../components/dashboard/StatCard";
-
-const cards = [
-  [Users, "bg-indigo-50 text-indigo-700", "Total Users", "totalUsers"],
-  [
-    Scale,
-    "bg-blue-50 text-blue-700",
-    "Total Instruments",
-    "totalInstruments",
-  ],
-  [
-    FileText,
-    "bg-violet-50 text-violet-700",
-    "Total Applications",
-    "totalApplications",
-  ],
-  [
-    UserCheck,
-    "bg-emerald-50 text-emerald-700",
-    "Active Officers",
-    "activeOfficers",
-  ],
-];
-
-function getStatusDisplay(status) {
-  switch (status) {
-    case "PASSED":
-    case "CERTIFICATE_GENERATED":
-      return {
-        label:
-          status === "PASSED"
-            ? "Approved"
-            : "Certificate Generated",
-        className: "bg-emerald-50 text-emerald-700",
-      };
-
-    case "FAILED":
-      return {
-        label: "Rejected",
-        className: "bg-rose-50 text-rose-700",
-      };
-
-    case "SUBMITTED":
-      return {
-        label: "Submitted",
-        className: "bg-blue-50 text-blue-700",
-      };
-
-    case "UNDER_REVIEW":
-      return {
-        label: "Under Review",
-        className: "bg-violet-50 text-violet-700",
-      };
-
-    case "SCHEDULED":
-      return {
-        label: "Scheduled",
-        className: "bg-amber-50 text-amber-700",
-      };
-
-    case "INSPECTION":
-      return {
-        label: "Inspection",
-        className: "bg-orange-50 text-orange-700",
-      };
-
-    case "CANCELLED":
-      return {
-        label: "Cancelled",
-        className: "bg-slate-100 text-slate-600",
-      };
-
-    default:
-      return {
-        label: status || "Unknown",
-        className: "bg-slate-100 text-slate-600",
-      };
-  }
-}
 
 export default function AdminDashboardPage() {
-  const [users, setUsers] = useState([]);
-  const [instruments, setInstruments] = useState([]);
-  const [applications, setApplications] = useState([]);
-
+  const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Assignment modal state
-  const [selectedApplication, setSelectedApplication] =
-    useState(null);
-  const [recommendations, setRecommendations] = useState([]);
-  const [loadingRecommendations, setLoadingRecommendations] =
-    useState(false);
-  const [assigning, setAssigning] = useState(false);
-  const [assignmentError, setAssignmentError] = useState("");
-
-  async function fetchDashboardData() {
+  const fetchDashboard = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const [
-        usersResponse,
-        instrumentsResponse,
-        applicationsResponse,
-      ] = await Promise.all([
-        api.get("/admin/users"),
-        api.get("/admin/instruments"),
-        api.get("/admin/applications"),
-      ]);
+      const response = await api.get(
+        "/admin/dashboard/stats"
+      );
 
-      setUsers(usersResponse.data);
-      setInstruments(instrumentsResponse.data);
-      setApplications(applicationsResponse.data);
+      setDashboard(response.data);
     } catch (err) {
-      console.error("Failed to load admin dashboard:", err);
-
-      const detail = err.response?.data?.detail;
+      console.error(
+        "Failed to load admin dashboard:",
+        err
+      );
 
       setError(
-        typeof detail === "string"
-          ? detail
-          : "Failed to load dashboard data."
+        err?.response?.data?.detail ||
+          "Failed to load dashboard."
       );
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const activeOfficers = useMemo(() => {
-    return users.filter(
-      (user) =>
-        user.is_active &&
-        (user.role === "LMO" || user.role === "GATC")
-    );
-  }, [users]);
-
-  const approvedCount = useMemo(() => {
-    return applications.filter(
-      (application) =>
-        application.status === "PASSED" ||
-        application.status === "CERTIFICATE_GENERATED"
-    ).length;
-  }, [applications]);
-
-  const rejectedCount = useMemo(() => {
-    return applications.filter(
-      (application) => application.status === "FAILED"
-    ).length;
-  }, [applications]);
-
-  const pendingCount = useMemo(() => {
-    return applications.filter((application) =>
-      [
-        "SUBMITTED",
-        "UNDER_REVIEW",
-        "SCHEDULED",
-        "INSPECTION",
-      ].includes(application.status)
-    ).length;
-  }, [applications]);
-
-  const stats = {
-    totalUsers: users.length,
-    totalInstruments: instruments.length,
-    totalApplications: applications.length,
-    activeOfficers: activeOfficers.length,
   };
 
-  const recentApplications = useMemo(() => {
-    return [...applications]
-      .sort(
-        (a, b) =>
-          new Date(b.submitted_at) -
-          new Date(a.submitted_at)
-      )
-      .slice(0, 4);
-  }, [applications]);
+  useEffect(() => {
+    fetchDashboard();
+  }, []);
 
-  // -----------------------------------------
-  // Open assignment modal
-  // -----------------------------------------
-  async function openAssignment(application) {
-    try {
-      setSelectedApplication(application);
-      setRecommendations([]);
-      setAssignmentError("");
-      setLoadingRecommendations(true);
-
-      const response = await api.get(
-        `/admin/applications/${application.id}/recommendations`
-      );
-
-      setRecommendations(response.data);
-    } catch (err) {
-      console.error(
-        "Failed to load officer recommendations:",
-        err
-      );
-
-      const detail = err.response?.data?.detail;
-
-      setAssignmentError(
-        typeof detail === "string"
-          ? detail
-          : "Failed to load officer recommendations."
-      );
-    } finally {
-      setLoadingRecommendations(false);
+  const statusEntries = useMemo(() => {
+    if (!dashboard) {
+      return [];
     }
+
+    return Object.entries(
+      dashboard.application_status || {}
+    ).filter(([, count]) => count > 0);
+  }, [dashboard]);
+
+  const totalInspections =
+    dashboard?.inspection_results
+      ? (dashboard.inspection_results.PASS || 0) +
+        (dashboard.inspection_results.FAIL || 0)
+      : 0;
+
+  const passPercentage =
+    totalInspections > 0
+      ? (
+          ((dashboard.inspection_results.PASS || 0) /
+            totalInspections) *
+          100
+        ).toFixed(1)
+      : 0;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f5f9fd] p-8">
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw
+            className="animate-spin text-blue-600"
+            size={30}
+          />
+        </div>
+      </div>
+    );
   }
 
-  // -----------------------------------------
-  // Assign selected officer
-  // -----------------------------------------
-  async function assignOfficer(officer) {
-    if (!selectedApplication) return;
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#f5f9fd] p-8">
+        <div className="bg-white rounded-2xl border border-red-200 p-8 text-center">
+          <AlertTriangle
+            className="mx-auto text-red-500 mb-3"
+            size={40}
+          />
 
-    try {
-      setAssigning(true);
-      setAssignmentError("");
+          <h2 className="text-lg font-semibold text-gray-900">
+            Failed to load dashboard
+          </h2>
 
-      await api.post(
-        `/admin/applications/${selectedApplication.id}/assign`,
-        {
-          officer_id: officer.officer_id,
+          <p className="text-gray-500 mt-2">
+            {error}
+          </p>
 
-          // Use application's preferred date/time if available.
-          scheduled_date:
-            selectedApplication.preferred_date || null,
+          <button
+            onClick={fetchDashboard}
+            className="mt-5 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-          scheduled_time:
-            selectedApplication.preferred_time || null,
-        }
-      );
-
-      // Close modal
-      setSelectedApplication(null);
-      setRecommendations([]);
-
-      // Refresh dashboard so status changes immediately
-      await fetchDashboardData();
-    } catch (err) {
-      console.error("Failed to assign officer:", err);
-
-      const detail = err.response?.data?.detail;
-
-      setAssignmentError(
-        typeof detail === "string"
-          ? detail
-          : "Failed to assign officer."
-      );
-    } finally {
-      setAssigning(false);
-    }
+  if (!dashboard) {
+    return null;
   }
 
   return (
-    <div className="mx-auto max-w-[1540px] px-4 py-7 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#f5f9fd] p-6 md:p-8">
 
-      {/* Header */}
-      <h1 className="text-2xl font-bold sm:text-3xl">
-        Admin Dashboard
-      </h1>
+      {/* =====================================================
+          HEADER
+      ====================================================== */}
 
-      <p className="mt-1 text-sm text-slate-500">
-        System-wide overview of the Legal Metrology Portal
-      </p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-7">
 
-      {error && (
-        <div className="mt-5 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {error}
-        </div>
-      )}
+        <div className="flex items-center gap-4">
 
-      {/* Main statistics */}
-      <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map(([Icon, tone, label, key]) => (
-          <StatCard
-            key={key}
-            icon={Icon}
-            tone={tone}
-            label={label}
-            value={loading ? "..." : stats[key]}
-          />
-        ))}
-      </div>
-
-      {/* Application status */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-
-        {/* Approved */}
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-            <ShieldCheck size={21} />
-          </span>
+          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center">
+            <BarChart3
+              size={25}
+              className="text-white"
+            />
+          </div>
 
           <div>
-            <p className="text-2xl font-bold">
-              {loading ? "..." : approvedCount}
-            </p>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Admin Dashboard
+            </h1>
 
-            <p className="text-sm text-slate-500">
-              Approved
-            </p>
-          </div>
-        </div>
-
-        {/* Rejected */}
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-rose-50 text-rose-700">
-            <XCircle size={21} />
-          </span>
-
-          <div>
-            <p className="text-2xl font-bold">
-              {loading ? "..." : rejectedCount}
-            </p>
-
-            <p className="text-sm text-slate-500">
-              Rejected
+            <p className="text-gray-500 mt-1">
+              Overview of the Metrika verification system.
             </p>
           </div>
+
         </div>
 
-        {/* Pending */}
-        <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-amber-50 text-amber-700">
-            <Clock3 size={21} />
-          </span>
-
-          <div>
-            <p className="text-2xl font-bold">
-              {loading ? "..." : pendingCount}
-            </p>
-
-            <p className="text-sm text-slate-500">
-              Pending
-            </p>
-          </div>
-        </div>
+        <button
+          onClick={fetchDashboard}
+          className="flex items-center justify-center gap-2 px-5 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition"
+        >
+          <RefreshCw size={18} />
+          Refresh
+        </button>
 
       </div>
 
-      {/* Recent Applications + Active Officers */}
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_.8fr]">
+      {/* =====================================================
+          KPI CARDS
+      ====================================================== */}
 
-        {/* Recent Applications */}
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-5 mb-7">
 
-          <div className="border-b p-5">
-            <h2 className="font-bold">
-              Recent Applications
-            </h2>
+        <StatCard
+          title="Total Applications"
+          value={dashboard.total_applications}
+          icon={FileText}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+        />
 
-            <p className="mt-1 text-sm text-slate-500">
-              Latest verification requests across all districts
-            </p>
+        <StatCard
+          title="Pending Applications"
+          value={dashboard.pending_applications}
+          icon={Clock}
+          iconBg="bg-orange-50"
+          iconColor="text-orange-600"
+        />
+
+        <StatCard
+          title="Scheduled Inspections"
+          value={dashboard.scheduled_inspections}
+          icon={CalendarCheck}
+          iconBg="bg-purple-50"
+          iconColor="text-purple-600"
+        />
+
+        <StatCard
+          title="Certificates Issued"
+          value={dashboard.certificates_issued}
+          icon={Award}
+          iconBg="bg-green-50"
+          iconColor="text-green-600"
+        />
+
+        <StatCard
+          title="Active Officers"
+          value={dashboard.active_officers}
+          icon={Users}
+          iconBg="bg-cyan-50"
+          iconColor="text-cyan-600"
+        />
+
+      </div>
+
+      {/* =====================================================
+          APPLICATION STATUS + INSPECTION RESULTS
+      ====================================================== */}
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
+
+        {/* APPLICATION STATUS */}
+
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+
+          <div className="p-6 border-b border-gray-100">
+
+            <div className="flex items-center gap-3">
+
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                <FileText
+                  size={20}
+                  className="text-blue-600"
+                />
+              </div>
+
+              <div>
+
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Application Overview
+                </h2>
+
+                <p className="text-sm text-gray-500">
+                  Current application pipeline.
+                </p>
+
+              </div>
+
+            </div>
+
           </div>
 
-          <div className="divide-y">
+          <div className="p-6 space-y-5">
 
-            {loading ? (
-              <div className="p-6 text-center text-sm text-slate-500">
-                Loading applications...
-              </div>
-            ) : recentApplications.length === 0 ? (
-              <div className="p-6 text-center text-sm text-slate-500">
-                No applications found.
-              </div>
+            {statusEntries.length === 0 ? (
+
+              <EmptyState text="No application data available." />
+
             ) : (
-              recentApplications.map((application) => {
-                const status = getStatusDisplay(
-                  application.status
-                );
 
-                const alreadyAssigned =
-                  application.status === "SCHEDULED" ||
-                  application.status === "INSPECTION" ||
-                  application.status === "PASSED" ||
-                  application.status ===
-                    "CERTIFICATE_GENERATED";
+              statusEntries.map(
+                ([status, count]) => {
 
-                return (
-                  <div
-                    className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
-                    key={application.id}
-                  >
-                    <div>
-                      <p className="text-sm font-bold text-slate-700">
-                        {application.application_number}
-                      </p>
+                  const percentage =
+                    dashboard.total_applications > 0
+                      ? (
+                          (count /
+                            dashboard.total_applications) *
+                          100
+                        ).toFixed(1)
+                      : 0;
 
-                      <p className="mt-1 text-xs text-slate-500">
-                        Instrument #{application.instrument_id}
-                        {" · "}
-                        {application.location}
-                      </p>
-                    </div>
+                  return (
+                    <div key={status}>
 
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
-                      >
-                        {status.label}
-                      </span>
+                      <div className="flex justify-between mb-2">
 
-                      {!alreadyAssigned && (
-                        <button
-                          onClick={() =>
-                            openAssignment(application)
-                          }
-                          className="rounded-lg bg-[#08755d] px-3 py-2 text-xs font-semibold text-white hover:bg-[#06664f]"
-                        >
-                          Assign Officer
-                        </button>
-                      )}
-
-                      {alreadyAssigned && (
-                        <span className="text-xs font-medium text-slate-400">
-                          Assigned
+                        <span className="text-sm font-medium text-gray-700">
+                          {formatStatus(status)}
                         </span>
-                      )}
+
+                        <span className="text-sm font-semibold text-gray-900">
+                          {count}
+                        </span>
+
+                      </div>
+
+                      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+
+                        <div
+                          className="h-full bg-blue-500 rounded-full"
+                          style={{
+                            width: `${percentage}%`,
+                          }}
+                        />
+
+                      </div>
+
                     </div>
-                  </div>
-                );
-              })
+                  );
+                }
+              )
+
             )}
 
           </div>
+
         </div>
 
-        {/* Active Officers */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        {/* INSPECTION RESULTS */}
 
-          <h2 className="font-bold">
-            Active Officers
-          </h2>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
 
-          {loading ? (
-            <p className="mt-4 text-sm text-slate-500">
-              Loading officers...
-            </p>
-          ) : activeOfficers.length === 0 ? (
-            <p className="mt-4 text-sm text-slate-500">
-              No active officers found.
-            </p>
-          ) : (
-            <div className="mt-4 space-y-4">
+          <div className="p-6 border-b border-gray-100">
 
-              {activeOfficers.map((officer) => (
-                <div
-                  className="flex items-center justify-between"
-                  key={officer.id}
-                >
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {officer.full_name}
-                    </p>
+            <div className="flex items-center gap-3">
 
-                    <p className="text-xs text-slate-500">
-                      {officer.role}
-                    </p>
-                  </div>
+              <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
+                <ClipboardCheck
+                  size={20}
+                  className="text-green-600"
+                />
+              </div>
 
-                  <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                    Active
-                  </span>
-                </div>
-              ))}
+              <div>
+
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Inspection Results
+                </h2>
+
+                <p className="text-sm text-gray-500">
+                  Verification outcomes across inspections.
+                </p>
+
+              </div>
 
             </div>
+
+          </div>
+
+          <div className="p-6">
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+
+              <ResultCard
+                title="PASS"
+                value={
+                  dashboard.inspection_results.PASS ||
+                  0
+                }
+                icon={CheckCircle2}
+                bg="bg-green-50"
+                color="text-green-600"
+              />
+
+              <ResultCard
+                title="FAIL"
+                value={
+                  dashboard.inspection_results.FAIL ||
+                  0
+                }
+                icon={XCircle}
+                bg="bg-red-50"
+                color="text-red-600"
+              />
+
+            </div>
+
+            <div>
+
+              <div className="flex justify-between text-sm mb-2">
+
+                <span className="text-gray-500">
+                  Pass Rate
+                </span>
+
+                <span className="font-semibold text-gray-900">
+                  {passPercentage}%
+                </span>
+
+              </div>
+
+              <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+
+                <div
+                  className="h-full bg-green-500 rounded-full"
+                  style={{
+                    width: `${passPercentage}%`,
+                  }}
+                />
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          PENDING ACTIONS
+      ====================================================== */}
+
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
+
+        <div className="p-6 border-b border-gray-100">
+
+          <div className="flex items-center gap-3">
+
+            <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center">
+              <AlertTriangle
+                size={20}
+                className="text-orange-600"
+              />
+            </div>
+
+            <div>
+
+              <h2 className="text-lg font-semibold text-gray-900">
+                Pending Actions
+              </h2>
+
+              <p className="text-sm text-gray-500">
+                Items that may require administrator attention.
+              </p>
+
+            </div>
+
+          </div>
+
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+
+          <ActionCard
+            title="Applications to Assign"
+            value={
+              dashboard.pending_actions
+                .applications_to_assign
+            }
+            description="Applications awaiting officer assignment."
+            icon={UserPlus}
+            iconColor="text-blue-600"
+            iconBg="bg-blue-50"
+            link="/admin/applications"
+          />
+
+          <ActionCard
+            title="Pending Inspections"
+            value={
+              dashboard.pending_actions
+                .inspections_pending
+            }
+            description="Assigned inspections awaiting completion."
+            icon={ClipboardCheck}
+            iconColor="text-purple-600"
+            iconBg="bg-purple-50"
+            link="/admin/applications"
+          />
+
+          <ActionCard
+            title="Certificates Expiring"
+            value={
+              dashboard.pending_actions
+                .expiring_certificates
+            }
+            description="Certificates expiring within 30 days."
+            icon={AlertTriangle}
+            iconColor="text-yellow-600"
+            iconBg="bg-yellow-50"
+            link="/admin/reports"
+          />
+
+        </div>
+
+      </div>
+
+      {/* =====================================================
+          RECENT ACTIVITY
+      ====================================================== */}
+
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+
+        <div className="p-6 border-b border-gray-100">
+
+          <div className="flex items-center justify-between">
+
+            <div className="flex items-center gap-3">
+
+              <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+                <Activity
+                  size={20}
+                  className="text-indigo-600"
+                />
+              </div>
+
+              <div>
+
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Recent Activity
+                </h2>
+
+                <p className="text-sm text-gray-500">
+                  Latest actions recorded in Metrika.
+                </p>
+
+              </div>
+
+            </div>
+
+            <a
+              href="/admin/audit-trail"
+              className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700"
+            >
+              View Audit Trail
+              <ArrowRight size={16} />
+            </a>
+
+          </div>
+
+        </div>
+
+        <div className="divide-y divide-gray-100">
+
+          {dashboard.recent_activity.length === 0 ? (
+
+            <EmptyState text="No recent activity." />
+
+          ) : (
+
+            dashboard.recent_activity.map(
+              (activity) => (
+
+                <ActivityRow
+                  key={activity.id}
+                  activity={activity}
+                />
+
+              )
+            )
+
           )}
 
         </div>
 
       </div>
 
-      {/* -------------------------------------- */}
-      {/* ASSIGN OFFICER MODAL */}
-      {/* -------------------------------------- */}
+    </div>
+  );
+}
 
-      {selectedApplication && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
 
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+/* =========================================================
+   STAT CARD
+========================================================= */
 
-            {/* Modal header */}
-            <div className="flex items-center justify-between border-b p-5">
-              <div>
-                <h2 className="text-lg font-bold">
-                  Assign Officer
-                </h2>
+function StatCard({
+  title,
+  value,
+  icon: Icon,
+  iconBg,
+  iconColor,
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
 
-                <p className="mt-1 text-sm text-slate-500">
-                  {selectedApplication.application_number}
-                </p>
-              </div>
+      <div className="flex items-center justify-between">
 
-              <button
-                onClick={() => {
-                  setSelectedApplication(null);
-                  setRecommendations([]);
-                  setAssignmentError("");
-                }}
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-              >
-                <X size={20} />
-              </button>
-            </div>
+        <div>
 
-            {/* Application details */}
-            <div className="border-b bg-slate-50 px-5 py-4">
-              <p className="text-sm font-semibold">
-                Instrument #{selectedApplication.instrument_id}
-              </p>
+          <p className="text-sm text-gray-500">
+            {title}
+          </p>
 
-              <p className="mt-1 text-xs text-slate-500">
-                {selectedApplication.location}
-              </p>
+          <p className="text-3xl font-bold text-gray-900 mt-2">
+            {value}
+          </p>
 
-              {selectedApplication.preferred_date && (
-                <p className="mt-2 text-xs text-slate-500">
-                  Preferred date:{" "}
-                  {selectedApplication.preferred_date}
-                </p>
-              )}
-            </div>
-
-            {/* Error */}
-            {assignmentError && (
-              <div className="mx-5 mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {assignmentError}
-              </div>
-            )}
-
-            {/* Recommendations */}
-            <div className="max-h-[420px] overflow-y-auto p-5">
-
-              {loadingRecommendations ? (
-                <div className="py-10 text-center text-sm text-slate-500">
-                  Finding suitable officers...
-                </div>
-              ) : recommendations.length === 0 ? (
-                <div className="py-10 text-center text-sm text-slate-500">
-                  No available officers found.
-                </div>
-              ) : (
-                <div className="space-y-3">
-
-                  {recommendations.map((officer) => (
-                    <div
-                      key={officer.officer_id}
-                      className="rounded-xl border border-slate-200 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-
-                        <div>
-                          <p className="font-semibold text-slate-800">
-                            {officer.officer_name}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-500">
-                            {officer.officer_type}
-                            {" · "}
-                            {officer.designation ||
-                              "Metrology Officer"}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-500">
-                            {officer.district || "District N/A"}
-                            {officer.state
-                              ? `, ${officer.state}`
-                              : ""}
-                          </p>
-
-                          {officer.specialization && (
-                            <p className="mt-2 text-xs text-slate-500">
-                              Specialization:{" "}
-                              {officer.specialization}
-                            </p>
-                          )}
-
-                          <p className="mt-2 text-xs text-slate-500">
-                            Current workload:{" "}
-                            {officer.current_workload}
-                          </p>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
-                            Score {officer.recommendation_score}
-                          </span>
-                        </div>
-
-                      </div>
-
-                      <button
-                        disabled={
-                          assigning || !officer.is_available
-                        }
-                        onClick={() =>
-                          assignOfficer(officer)
-                        }
-                        className="mt-4 w-full rounded-lg bg-[#08755d] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#06664f] disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        {assigning
-                          ? "Assigning..."
-                          : officer.is_available
-                            ? "Assign This Officer"
-                            : "Officer Unavailable"}
-                      </button>
-                    </div>
-                  ))}
-
-                </div>
-              )}
-
-            </div>
-
-          </div>
         </div>
-      )}
+
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center ${iconBg}`}
+        >
+          <Icon
+            size={22}
+            className={iconColor}
+          />
+        </div>
+
+      </div>
 
     </div>
+  );
+}
+
+
+/* =========================================================
+   RESULT CARD
+========================================================= */
+
+function ResultCard({
+  title,
+  value,
+  icon: Icon,
+  bg,
+  color,
+}) {
+  return (
+    <div className="border border-gray-100 rounded-xl p-4">
+
+      <div className="flex items-center justify-between">
+
+        <div>
+
+          <p className="text-xs font-semibold text-gray-500">
+            {title}
+          </p>
+
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {value}
+          </p>
+
+        </div>
+
+        <div
+          className={`w-10 h-10 rounded-lg flex items-center justify-center ${bg}`}
+        >
+          <Icon
+            size={20}
+            className={color}
+          />
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+
+/* =========================================================
+   ACTION CARD
+========================================================= */
+
+function ActionCard({
+  title,
+  value,
+  description,
+  icon: Icon,
+  iconColor,
+  iconBg,
+  link,
+}) {
+  return (
+    <div className="p-6">
+
+      <div className="flex items-start gap-4">
+
+        <div
+          className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}
+        >
+          <Icon
+            size={21}
+            className={iconColor}
+          />
+        </div>
+
+        <div className="flex-1">
+
+          <p className="text-sm text-gray-500">
+            {title}
+          </p>
+
+          <p className="text-3xl font-bold text-gray-900 mt-1">
+            {value}
+          </p>
+
+          <p className="text-xs text-gray-400 mt-2">
+            {description}
+          </p>
+
+          <a
+            href={link}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 mt-3"
+          >
+            View
+            <ArrowRight size={13} />
+          </a>
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+
+/* =========================================================
+   ACTIVITY ROW
+========================================================= */
+
+function ActivityRow({ activity }) {
+  return (
+    <div className="px-6 py-4 flex items-center gap-4 hover:bg-gray-50 transition">
+
+      <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+
+        <Activity
+          size={17}
+          className="text-blue-600"
+        />
+
+      </div>
+
+      <div className="flex-1 min-w-0">
+
+        <div className="flex flex-wrap items-center gap-2">
+
+          <span className="font-medium text-gray-800">
+            {formatAction(activity.action)}
+          </span>
+
+          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+            {activity.entity_type}
+            {activity.entity_id
+              ? ` #${activity.entity_id}`
+              : ""}
+          </span>
+
+        </div>
+
+        <p className="text-xs text-gray-500 mt-1">
+          {activity.user_name}
+          {activity.user_role
+            ? ` · ${activity.user_role}`
+            : ""}
+        </p>
+
+      </div>
+
+      <div className="text-xs text-gray-400 whitespace-nowrap">
+        {formatDateTime(
+          activity.created_at
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+
+/* =========================================================
+   EMPTY STATE
+========================================================= */
+
+function EmptyState({ text }) {
+  return (
+    <div className="py-10 text-center">
+
+      <Activity
+        size={32}
+        className="mx-auto text-gray-300"
+      />
+
+      <p className="text-sm text-gray-500 mt-3">
+        {text}
+      </p>
+
+    </div>
+  );
+}
+
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function formatStatus(status) {
+  return status
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    );
+}
+
+function formatAction(action) {
+  return action
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) =>
+      letter.toUpperCase()
+    );
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "Unknown";
+  }
+
+  return new Date(value).toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
   );
 }

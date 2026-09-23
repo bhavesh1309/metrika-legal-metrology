@@ -57,6 +57,7 @@ class InstrumentResponse(BaseModel):
     location: str
     status: str
 
+
 class ApplicationCreate(BaseModel):
     instrument_id: int
     application_type: str = "INITIAL_VERIFICATION"
@@ -167,5 +168,135 @@ class AdminUserResponse(BaseModel):
     role: str
     is_active: bool
 
-    class Config:
-        from_attributes = True
+    # Officer-specific fields
+    employee_code: str | None = None
+    designation: str | None = None
+    district: str | None = None
+    state: str | None = None
+    specialization: str | None = None
+    is_available: bool | None = None
+
+    created_at: datetime | None = None
+
+class AdminApplicationResponse(BaseModel):
+    id: int
+    application_number: str
+
+    business_id: int
+    business_name: str | None = None
+    business_email: str | None = None
+
+    instrument_id: int
+    instrument_code: str | None = None
+    instrument_type: str | None = None
+    serial_number: str | None = None
+
+    application_type: str
+    preferred_date: date | None = None
+    preferred_time: time | None = None
+    location: str
+
+    status: str
+    submitted_at: datetime
+    updated_at: datetime
+
+    assigned_officer_id: int | None = None
+    assigned_officer_name: str | None = None
+    scheduled_date: date | None = None
+    scheduled_time: time | None = None
+
+    inspection_result: str | None = None
+    rejection_reason: str | None = None
+
+    certificate_number: str | None = None
+
+class AdminInstrumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: str
+    business_id: int
+    instrument_type: str
+    manufacturer: str | None
+    model: str | None
+    serial_number: str | None
+    capacity: Decimal
+    capacity_unit: str
+    least_count: Decimal
+    location: str
+    status: str
+
+    verification_status: str
+    last_verification_date: date | None = None
+    valid_until: date | None = None
+    certificate_number: str | None = None
+
+class AdminCertificateResponse(BaseModel):
+    id: int
+    certificate_number: str
+
+    application_id: int
+
+    business_id: int
+    business_name: str | None = None
+
+    instrument_id: int
+    instrument_code: str | None = None
+    instrument_type: str | None = None
+    serial_number: str | None = None
+
+    verification_date: date
+    valid_until: date
+
+    status: str
+
+class AdminAuditLogResponse(BaseModel):
+    id: int
+
+    user_id: int | None = None
+    user_name: str | None = None
+    user_role: str | None = None
+
+    action: str
+    entity_type: str
+    entity_id: int | None = None
+
+    old_value: dict | None = None
+    new_value: dict | None = None
+
+    ip_address: str | None = None
+    created_at: datetime
+
+class AdminReportsResponse(BaseModel):
+    total_applications: int
+    completed_verifications: int
+    pending_applications: int
+    pass_rate: float
+
+    failed_inspections: int
+    certificates_issued: int
+    expiring_soon: int
+    active_officers: int
+
+    application_status: dict[str, int]
+    inspection_results: dict[str, int]
+
+    application_trends: list[dict]
+    officer_workload: list[dict]
+    instrument_distribution: list[dict]
+
+    expiring_certificates: list[dict]
+
+class AdminDashboardResponse(BaseModel):
+    total_applications: int
+    pending_applications: int
+    scheduled_inspections: int
+    certificates_issued: int
+    active_officers: int
+
+    application_status: dict[str, int]
+    inspection_results: dict[str, int]
+
+    pending_actions: dict[str, int]
+
+    recent_activity: list[dict]
