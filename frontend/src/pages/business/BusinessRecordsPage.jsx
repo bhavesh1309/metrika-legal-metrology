@@ -18,18 +18,7 @@ import { QRCodeSVG } from "qrcode.react";
 import api from "../../services/api";
 
 const mockData = {
-  notifications: [
-    [
-      "Verification due soon",
-      "Digital Weighing Scale requires re-verification in 15 days",
-      "Today",
-    ],
-    [
-      "Application scheduled",
-      "Your application APP-2024-0062 has been scheduled.",
-      "Yesterday",
-    ],
-  ],
+  notifications: [],
 
   profile: [
     ["Business Name", "Amit Sharma Enterprises"],
@@ -552,7 +541,7 @@ function TrackingTimeline({ row }) {
                                 "http"
                               )
                                 ? row.certificate.pdfUrl
-                                : `http://localhost:8000${row.certificate.pdfUrl}`
+                                : `https://metrika-legal-metrology.onrender.com${row.certificate.pdfUrl}`
                             }
                             target="_blank"
                             rel="noreferrer"
@@ -862,7 +851,7 @@ export default function BusinessRecordsPage({
       certificateNumber:
         certificate.certificateNumber,
 
-      qrUrl: `http://localhost:8000/verify/${certificate.certificateNumber}`,
+      qrUrl: `https://metrika-legal-metrology.onrender.com/verify/${certificate.certificateNumber}`,
     });
   }
 
@@ -944,7 +933,7 @@ export default function BusinessRecordsPage({
                         "http"
                       )
                       ? row.pdfUrl
-                      : `http://localhost:8000${row.pdfUrl}`
+                      : `https://metrika-legal-metrology.onrender.com${row.pdfUrl}`
                     : null;
 
                   return (
@@ -996,7 +985,7 @@ export default function BusinessRecordsPage({
                               certificateNumber:
                                 row.certificateNumber,
 
-                              qrUrl: `http://localhost:8000/verify/${row.certificateNumber}`,
+                              qrUrl: `https://metrika-legal-metrology.onrender.com/verify/${row.certificateNumber}`,
                             })
                           }
                           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"

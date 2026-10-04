@@ -52,10 +52,6 @@ export default function BusinessLayout() {
           <div className="flex items-center gap-4">
             <button className="relative text-slate-700">
               <Bell size={22} />
-
-              <i className="absolute -right-2 -top-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white not-italic">
-                3
-              </i>
             </button>
 
             <div className="hidden h-8 w-px bg-slate-200 sm:block" />

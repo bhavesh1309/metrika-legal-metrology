@@ -1223,7 +1223,7 @@ def generate_certificate(
     pdf.save()
 
     verification_url = (
-        f"http://localhost:8000/verify/{certificate_number}"
+        f"https://metrika-legal-metrology.onrender.com/verify/{certificate_number}"
     )
 
     qr = qrcode.make(verification_url)
