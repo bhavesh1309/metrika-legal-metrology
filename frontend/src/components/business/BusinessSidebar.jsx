@@ -57,11 +57,6 @@ export default function BusinessSidebar({ open, onClose }) {
               >
                 <Icon size={20} />
                 <span>{label}</span>
-                {label === "Notifications" && (
-                  <i className="ml-auto rounded-full bg-[#ef4444] px-2 py-0.5 text-[11px] font-bold not-italic">
-                    3
-                  </i>
-                )}
               </NavLink>
             ))}
           </div>
